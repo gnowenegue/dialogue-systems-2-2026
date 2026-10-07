@@ -30,6 +30,24 @@ async function fhSay(text: string) {
   return result;
 }
 
+async function fhAudio(url: string, blocking: boolean) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  const encUrl = encodeURIComponent(url);
+  const response = await fetch(
+    `http://${FURHATURI}/furhat/say?url=${encUrl}&blocking=${blocking}`,
+    {
+      method: "POST",
+      headers: myHeaders,
+      body: "",
+    },
+  );
+  const result = await response.json();
+  console.log("fhAudio result :>> ", result);
+
+  return result;
+}
+
 async function newGesture() {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
@@ -62,17 +80,21 @@ async function newGesture() {
   });
 }
 
-async function fhGesture(text: string) {
+async function fhGesture(name: string, blocking: boolean) {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
-  return fetch(
-    `http://${FURHATURI}/furhat/gesture?name=${text}&blocking=true`,
+  const response = await fetch(
+    `http://${FURHATURI}/furhat/gesture?name=${name}&blocking=${blocking}`,
     {
       method: "POST",
       headers: myHeaders,
       body: "",
     },
   );
+  const result = await response.json();
+  console.log("fhGesture result :>> ", result);
+
+  return result;
 }
 
 async function fhListen() {
@@ -86,6 +108,11 @@ async function fhListen() {
   const result = await response.json();
 
   return result.message;
+
+  // .then((response) => response.body)
+  // .then((body) => body.getReader().read())
+  // .then((reader) => reader.value)
+  // .then((value) => JSON.parse(new TextDecoder().decode(value)).message);
 }
 
 async function fhAttend(user: "CLOSEST" | "OTHER" | "RANDOM") {
@@ -128,6 +155,16 @@ type LEDColor = {
   blue?: number;
 };
 
+type Gesture = {
+  name: string;
+  blocking: boolean;
+};
+
+type Audio = {
+  url: string;
+  blocking: boolean;
+};
+
 const dmMachine = setup({
   actors: {
     fhVoice: fromPromise<any, null>(async () => {
@@ -135,6 +172,10 @@ const dmMachine = setup({
     }),
     fhSay: fromPromise<any, string>(async ({ input }) => {
       return fhSay(input);
+    }),
+    fhAudio: fromPromise<any, Audio>(async ({ input }) => {
+      const { url, blocking } = input;
+      return fhAudio(url, blocking);
     }),
     fhListen: fromPromise<any, null>(async () => {
       return fhListen();
@@ -148,6 +189,10 @@ const dmMachine = setup({
     }),
     fhNewGesture: fromPromise<any, null>(async () => {
       return newGesture();
+    }),
+    fhGesture: fromPromise<any, Gesture>(async ({ input }) => {
+      const { name, blocking } = input;
+      return fhGesture(name, blocking);
     }),
   },
 }).createMachine({
@@ -172,6 +217,7 @@ const dmMachine = setup({
         },
       },
     },
+    // Start: { after: { 1000: "Next" } },
     Greet: {
       entry: () => {
         fhLed(255, 0, 0);
@@ -191,7 +237,10 @@ const dmMachine = setup({
       },
     },
     NoInput: {
-      entry: () => fhLed(255, 0, 0),
+      entry: () => {
+        fhLed(255, 0, 0);
+        fhGesture("Shake", false);
+      },
       invoke: {
         src: "fhSay",
         input: "I can't hear you.",
@@ -212,10 +261,38 @@ const dmMachine = setup({
         input: ({ context }) => `You said ${context.lastUtterance}`,
         onDone: [
           {
+            target: "Angry",
+            guard: ({ context }) =>
+              context.lastUtterance?.toLowerCase().includes("angry") ?? false,
+            actions: ({ event }) => console.log("\t", event.output),
+          },
+          {
             target: "Listen",
             actions: ({ event }) => console.log("\t", event.output),
           },
         ],
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
+    Angry: {
+      entry: () => {
+        fhLed(255, 0, 0);
+        fhGesture("ExpressAnger", false);
+      },
+      invoke: {
+        src: "fhAudio",
+        input: {
+          // url: "https://freesound.org/people/Artninja/sounds/849000/download/849000__artninja__berserker_or_hulk_distressed_screaming_roar_sound_03252026.wav",
+          url: "https://raw.githubusercontent.com/kscottz/PiCommander/master/lion_growl.wav",
+          blocking: true,
+        },
+        onDone: {
+          target: "Listen",
+          actions: ({ event }) => console.log("\t", event.output),
+        },
         onError: {
           target: "Fail",
           actions: ({ event }) => console.error(event),
