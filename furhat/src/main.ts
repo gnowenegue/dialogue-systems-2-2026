@@ -103,6 +103,29 @@ async function fhAttend(user: "CLOSEST" | "OTHER" | "RANDOM") {
   return result;
 }
 
+async function fhLed(red = 0, green = 0, blue = 0) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+
+  const response = await fetch(
+    `http://${FURHATURI}/furhat/led?red=${red}&green=${green}&blue=${blue}`,
+    {
+      method: "POST",
+      headers: myHeaders,
+      body: "",
+    },
+  );
+  const result = await response.json();
+
+  return result;
+}
+
+type LEDColor = {
+  red?: number;
+  green?: number;
+  blue?: number;
+};
+
 const dmMachine = setup({
   actors: {
     fhVoice: fromPromise<any, null>(async () => {
@@ -117,6 +140,10 @@ const dmMachine = setup({
     fhAttend: fromPromise<any, null>(async () => {
       return fhAttend("CLOSEST");
     }),
+    fhLed: fromPromise<any, LEDColor>(async ({ input }) => {
+      const { red, green, blue } = input;
+      return fhLed(red, green, blue);
+    }),
   },
 }).createMachine({
   id: "root",
@@ -126,6 +153,7 @@ const dmMachine = setup({
   initial: "Attend",
   states: {
     Attend: {
+      entry: () => fhLed(0, 0, 0),
       invoke: {
         src: "fhAttend",
         input: null,
@@ -140,6 +168,7 @@ const dmMachine = setup({
       },
     },
     Greet: {
+      entry: () => fhLed(255, 0, 0),
       invoke: {
         src: "fhSay",
         input: "Hello there",
@@ -154,6 +183,7 @@ const dmMachine = setup({
       },
     },
     NoInput: {
+      entry: () => fhLed(255, 0, 0),
       invoke: {
         src: "fhSay",
         input: "I can't hear you.",
@@ -168,6 +198,7 @@ const dmMachine = setup({
       },
     },
     Repeat: {
+      entry: () => fhLed(255, 0, 0),
       invoke: {
         src: "fhSay",
         input: ({ context }) => `You said ${context.lastUtterance}`,
@@ -184,6 +215,7 @@ const dmMachine = setup({
       },
     },
     Listen: {
+      entry: () => fhLed(0, 255, 0),
       invoke: {
         src: "fhListen",
         input: null,
