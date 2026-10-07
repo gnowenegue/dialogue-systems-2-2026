@@ -1,11 +1,12 @@
-import { Hypothesis, SpeechStateExternalEvent } from 'speechstate';
-import { AnyActorRef } from 'xstate';
+import { Hypothesis, SpeechStateExternalEvent } from "speechstate";
+import { AnyActorRef } from "xstate";
 
-import { ROLES } from './constants';
+import { ROLES } from "./constants";
 
 export interface DMContext {
   spstRef: AnyActorRef;
   lastResult: Hypothesis[] | null;
+  lastUtterance: string | null;
   // nextUtterance: string;
   messages: Message[];
   noInputCount: number;

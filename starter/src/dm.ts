@@ -1,6 +1,14 @@
 import { speechstate } from "speechstate";
 import { assign, createActor, fromPromise, setup } from "xstate";
 
+import {
+  fhGesture,
+  fhLed,
+  fhListen,
+  fhSay,
+  newGesture,
+  setFurhatBaseUrl,
+} from "../../furhat/src/services";
 import { settings } from "./configs";
 import { NO_INPUT_THRESHOLD, ROLES } from "./constants";
 import prompts from "./prompts";
@@ -13,6 +21,7 @@ const azureProxyCredentials = {
   key: "",
   };
 */
+setFurhatBaseUrl(window.location.origin);
 
 const getChatCompletionsLogic = fromPromise(
   async ({ input }: { input: { messages: Message[] } }) => {
@@ -59,11 +68,18 @@ const dmMachine = setup({
   actors: {
     getChatCompletionsActor: getChatCompletionsLogic,
     queryRagActor: queryRagLogic,
+    fhSay: fromPromise<any, string>(async ({ input }) => {
+      return fhSay(input);
+    }),
+    fhListen: fromPromise<any, null>(async () => {
+      return fhListen();
+    }),
   },
 }).createMachine({
   context: ({ spawn }) => ({
     spstRef: spawn(speechstate, { input: settings }),
     lastResult: null,
+    lastUtterance: null,
     messages: [
       {
         role: ROLES.System,
@@ -76,13 +92,21 @@ const dmMachine = setup({
   initial: "Prepare",
   states: {
     Prepare: {
-      entry: ({ context }) => context.spstRef.send({ type: "PREPARE" }),
+      entry: ({ context }) => {
+        fhLed(0, 0, 0);
+        context.spstRef.send({ type: "PREPARE" });
+      },
       on: { ASRTTS_READY: "WaitToStart" },
     },
     WaitToStart: {
+      entry: () => fhLed(0, 0, 255),
       on: { CLICK: "GenerateLLMResponse" },
     },
     GenerateLLMResponse: {
+      entry: () => {
+        fhLed(255, 0, 0);
+        fhGesture("GazeAway", false);
+      },
       invoke: {
         id: "getChatCompletionsActor",
         src: "getChatCompletionsActor",
@@ -109,18 +133,24 @@ const dmMachine = setup({
       },
     },
     QueryRAG: {
+      entry: () => {
+        fhLed(255, 0, 0);
+        newGesture();
+      },
       invoke: {
         id: "queryRagActor",
         src: "queryRagActor",
         input: ({ context }) => ({
-          query: context.lastResult?.[0]?.utterance ?? "",
+          // query: context.lastResult?.[0]?.utterance ?? "",
+          query: context.lastUtterance ?? "",
         }),
         onDone: {
           target: "GenerateLLMResponse",
           actions: assign({
             messages: ({ context, event }) => {
               const { messages } = context;
-              const userQuestion = context.lastResult?.[0]?.utterance ?? "";
+              // const userQuestion = context.lastResult?.[0]?.utterance ?? "";
+              const userQuestion = context.lastUtterance ?? "";
               const ragResults = event.output;
 
               const conversationHistory = messages.filter(
@@ -147,81 +177,126 @@ const dmMachine = setup({
       },
     },
     Speak: {
-      entry: {
-        type: "spst.speak",
-        params: ({ context }) => ({
-          utterance:
-            context.messages[context.messages.length - 1]?.content ||
-            prompts.defaultGreeting,
-        }),
+      entry: () => fhLed(255, 0, 0),
+      invoke: {
+        src: "fhSay",
+        input: ({ context }) =>
+          context.messages[context.messages.length - 1]?.content ||
+          prompts.defaultGreeting,
+        onDone: {
+          target: "Ask",
+          actions: ({ event }) => console.log("\t", event.output),
+        },
+        onError: {
+          target: "Error",
+          actions: ({ event }) => console.error(event),
+        },
       },
-      on: { SPEAK_COMPLETE: "Ask" },
     },
     NoInput: {
-      entry: {
-        type: "spst.speak",
-        params: ({ context }) => ({
-          utterance:
-            prompts.noInput[context.noInputCount - 1] || prompts.cannotHear,
-        }),
+      entry: () => {
+        fhLed(255, 0, 0);
+        fhGesture("Shake", false);
       },
-      on: {
-        SPEAK_COMPLETE: [
+      invoke: {
+        src: "fhSay",
+        input: ({ context }) =>
+          prompts.noInput[context.noInputCount - 1] || prompts.cannotHear,
+        onDone: [
           {
             target: "Done",
             guard: ({ context }) => context.noInputCount >= NO_INPUT_THRESHOLD,
           },
           {
             target: "Ask",
+            actions: ({ event }) => console.log("\t", event.output),
           },
         ],
+        onError: {
+          target: "Error",
+          actions: ({ event }) => console.error(event),
+        },
       },
     },
     Error: {
-      entry: {
-        type: "spst.speak",
-        params: { utterance: prompts.llmError },
+      entry: () => {
+        fhLed(255, 0, 0);
+        fhGesture("Shake", false);
       },
-      on: { SPEAK_COMPLETE: "Ask" },
+      invoke: {
+        src: "fhSay",
+        input: prompts.llmError,
+        onDone: {
+          target: "Ask",
+          actions: ({ event }) => console.log("\t", event.output),
+        },
+        onError: {
+          target: "Error",
+          actions: ({ event }) => console.error(event),
+        },
+      },
     },
     Ask: {
-      entry: [assign({ lastResult: null }), { type: "spst.listen" }],
-      on: {
-        RECOGNISED: {
-          actions: assign({
-            lastResult: ({ event }) => event.value,
-            noInputCount: 0,
-          }),
-        },
-        ASR_NOINPUT: {
-          actions: assign({
-            lastResult: null,
-            noInputCount: ({ context }) => context.noInputCount + 1,
-          }),
-        },
-        LISTEN_COMPLETE: [
-          {
-            target: "QueryRAG",
-            guard: ({ context }) =>
-              !!context.lastResult?.[0]?.utterance?.trim(),
-          },
+      entry: () => {
+        fhLed(0, 255, 0);
+        fhGesture("Nod", false);
+      },
+      invoke: {
+        src: "fhListen",
+        input: null,
+        onDone: [
           {
             target: "NoInput",
+            guard: ({ event }) => {
+              return (
+                !event.output.message ||
+                event.output.message.trim() === "" ||
+                event.output.message === "SILENCE"
+              );
+            },
+            actions: [
+              () => console.log("\tNo input"),
+              assign({
+                lastUtterance: null,
+                noInputCount: ({ context }) => context.noInputCount + 1,
+              }),
+            ],
+            // actions: () => console.log("\tNo input"),
+          },
+          {
+            target: "QueryRAG",
+            actions: [
+              assign({
+                lastUtterance: ({ event }) => event.output.message,
+                noInputCount: 0,
+              }),
+              ({ event }) => console.log("\t", event.output.message),
+            ],
           },
         ],
+        onError: {
+          target: "Error",
+          actions: ({ event }) => console.error(event),
+        },
       },
     },
     Done: {
-      entry: assign({
-        lastResult: null,
-        messages: [
-          {
-            role: ROLES.System,
-            content: prompts.systemDefault,
-          },
-        ],
-        noInputCount: 0,
-      }),
+      entry: [
+        () => {
+          fhLed(0, 0, 0);
+          fhGesture("BigSmile", false);
+        },
+        assign({
+          lastUtterance: null,
+          messages: [
+            {
+              role: ROLES.System,
+              content: prompts.systemDefault,
+            },
+          ],
+          noInputCount: 0,
+        }),
+      ],
       on: {
         CLICK: "GenerateLLMResponse",
       },
