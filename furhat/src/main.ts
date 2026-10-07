@@ -1,153 +1,98 @@
-import { setup, createActor, fromPromise, assign } from "xstate";
+import { assign, createActor, fromPromise, setup } from "xstate";
 
 const FURHATURI = "127.0.0.1:54321";
+const AUDIO_URL =
+  "https://raw.githubusercontent.com/kscottz/PiCommander/master/lion_growl.wav";
 
-async function fhVoice(name: string) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  const encName = encodeURIComponent(name);
-  return await fetch(`http://${FURHATURI}/furhat/voice?name=${encName}`, {
-    method: "POST",
-    headers: myHeaders,
-    body: "",
+type Param = Record<string, string | number | boolean>;
+
+type Config = {
+  method: "POST" | "GET";
+  body?: string | Record<string, unknown>;
+};
+
+async function fhFetch(action: string, config: Config, param?: Param) {
+  const headers = new Headers();
+  headers.append("accept", "application/json");
+
+  if (config.method === "POST" && config.body)
+    headers.append("content-type", "application/json");
+
+  const url = new URL(`http://${FURHATURI}/furhat/${action}`);
+
+  if (param) {
+    Object.entries(param).forEach(([key, value]) => {
+      url.searchParams.append(key, value.toString());
+    });
+  }
+
+  const body =
+    typeof config.body === "object" ? JSON.stringify(config.body) : config.body;
+
+  // console.log("url.href :>> ", url.href);
+
+  const response = await fetch(url.href, {
+    headers: headers,
+    ...config,
+    body,
   });
-}
 
-async function fhSay(text: string) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  const encText = encodeURIComponent(text);
-  const response = await fetch(
-    `http://${FURHATURI}/furhat/say?text=${encText}&blocking=true`,
-    {
-      method: "POST",
-      headers: myHeaders,
-      body: "",
-    },
-  );
   const result = await response.json();
-
+  console.log(`${action}, ${JSON.stringify(param)}, result :>> `, result);
   return result;
 }
 
-async function fhAudio(url: string, blocking: boolean) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  const encUrl = encodeURIComponent(url);
-  const response = await fetch(
-    `http://${FURHATURI}/furhat/say?url=${encUrl}&blocking=${blocking}`,
+const fhVoice = (name: string) =>
+  fhFetch("voice", { method: "POST" }, { name });
+
+const fhSay = (text: string) =>
+  fhFetch("say", { method: "POST" }, { text, blocking: true });
+
+const fhAudio = (url: string, blocking: boolean) =>
+  fhFetch("say", { method: "POST" }, { url, blocking });
+
+const newGesture = () =>
+  fhFetch(
+    "gesture",
     {
       method: "POST",
-      headers: myHeaders,
-      body: "",
-    },
-  );
-  const result = await response.json();
-  console.log("fhAudio result :>> ", result);
-
-  return result;
-}
-
-async function newGesture() {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  return await fetch(`http://${FURHATURI}/furhat/gesture?blocking=false`, {
-    method: "POST",
-    headers: myHeaders,
-    body: JSON.stringify({
-      name: "newGesture",
-      frames: [
-        {
-          time: [0.35, 1], //ADD THE TIME FRAME OF YOUR LIKING
-          persist: true,
-          params: {
-            BROW_UP_RIGHT: 1,
-            BROW_DOWN_LEFT: 1,
-            //ADD PARAMETERS HERE IN ORDER TO CREATE A GESTURE
+      body: {
+        name: "newGesture",
+        frames: [
+          {
+            time: [0.35, 1], //ADD THE TIME FRAME OF YOUR LIKING
+            persist: true,
+            params: {
+              BROW_UP_RIGHT: 1,
+              BROW_DOWN_LEFT: 1,
+              //ADD PARAMETERS HERE IN ORDER TO CREATE A GESTURE
+            },
           },
-        },
-        {
-          time: [1.5], //ADD TIME FRAME IN WHICH YOUR GESTURE RESETS
-          persist: true,
-          params: {
-            reset: true,
+          {
+            time: [1.5], //ADD TIME FRAME IN WHICH YOUR GESTURE RESETS
+            persist: true,
+            params: {
+              reset: true,
+            },
           },
-        },
-        //ADD MORE TIME FRAMES IF YOUR GESTURE REQUIRES THEM
-      ],
-      class: "furhatos.gestures.Gesture",
-    }),
-  });
-}
-
-async function fhGesture(name: string, blocking: boolean) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  const response = await fetch(
-    `http://${FURHATURI}/furhat/gesture?name=${name}&blocking=${blocking}`,
-    {
-      method: "POST",
-      headers: myHeaders,
-      body: "",
+          //ADD MORE TIME FRAMES IF YOUR GESTURE REQUIRES THEM
+        ],
+        class: "furhatos.gestures.Gesture",
+      },
     },
+    { blocking: false },
   );
-  const result = await response.json();
-  console.log("fhGesture result :>> ", result);
 
-  return result;
-}
+const fhGesture = (name: string, blocking: boolean) =>
+  fhFetch("gesture", { method: "POST" }, { name, blocking });
 
-async function fhListen() {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
+const fhListen = () => fhFetch("listen", { method: "GET" });
 
-  const response = await fetch(`http://${FURHATURI}/furhat/listen`, {
-    method: "GET",
-    headers: myHeaders,
-  });
-  const result = await response.json();
+const fhAttend = (user: "CLOSEST" | "OTHER" | "RANDOM") =>
+  fhFetch("attend", { method: "POST" }, { user });
 
-  return result.message;
-
-  // .then((response) => response.body)
-  // .then((body) => body.getReader().read())
-  // .then((reader) => reader.value)
-  // .then((value) => JSON.parse(new TextDecoder().decode(value)).message);
-}
-
-async function fhAttend(user: "CLOSEST" | "OTHER" | "RANDOM") {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-
-  const response = await fetch(
-    `http://${FURHATURI}/furhat/attend?user=${user}`,
-    {
-      method: "POST",
-      headers: myHeaders,
-      body: "",
-    },
-  );
-  const result = await response.json();
-
-  return result;
-}
-
-async function fhLed(red = 0, green = 0, blue = 0) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-
-  const response = await fetch(
-    `http://${FURHATURI}/furhat/led?red=${red}&green=${green}&blue=${blue}`,
-    {
-      method: "POST",
-      headers: myHeaders,
-      body: "",
-    },
-  );
-  const result = await response.json();
-
-  return result;
-}
+const fhLed = (red = 0, green = 0, blue = 0) =>
+  fhFetch("led", { method: "POST" }, { red, green, blue });
 
 type LEDColor = {
   red?: number;
@@ -217,7 +162,6 @@ const dmMachine = setup({
         },
       },
     },
-    // Start: { after: { 1000: "Next" } },
     Greet: {
       entry: () => {
         fhLed(255, 0, 0);
@@ -285,8 +229,7 @@ const dmMachine = setup({
       invoke: {
         src: "fhAudio",
         input: {
-          // url: "https://freesound.org/people/Artninja/sounds/849000/download/849000__artninja__berserker_or_hulk_distressed_screaming_roar_sound_03252026.wav",
-          url: "https://raw.githubusercontent.com/kscottz/PiCommander/master/lion_growl.wav",
+          url: AUDIO_URL,
           blocking: true,
         },
         onDone: {
@@ -309,9 +252,9 @@ const dmMachine = setup({
             target: "NoInput",
             guard: ({ event }) => {
               return (
-                !event.output ||
-                event.output.trim() === "" ||
-                event.output === "SILENCE"
+                !event.output.message ||
+                event.output.message.trim() === "" ||
+                event.output.message === "SILENCE"
               );
             },
             actions: () => console.log("\tNo input"),
@@ -320,9 +263,9 @@ const dmMachine = setup({
             target: "Repeat",
             actions: [
               assign({
-                lastUtterance: ({ event }) => event.output,
+                lastUtterance: ({ event }) => event.output.message,
               }),
-              ({ event }) => console.log("\t", event.output),
+              ({ event }) => console.log("\t", event.output.message),
             ],
           },
         ],
