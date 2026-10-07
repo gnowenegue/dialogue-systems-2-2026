@@ -33,21 +33,23 @@ async function fhSay(text: string) {
 async function newGesture() {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
-  return fetch(`http://${FURHATURI}/furhat/gesture?blocking=false`, {
+  return await fetch(`http://${FURHATURI}/furhat/gesture?blocking=false`, {
     method: "POST",
     headers: myHeaders,
     body: JSON.stringify({
       name: "newGesture",
       frames: [
         {
-          time: [], //ADD THE TIME FRAME OF YOUR LIKING
+          time: [0.35, 1], //ADD THE TIME FRAME OF YOUR LIKING
           persist: true,
           params: {
+            BROW_UP_RIGHT: 1,
+            BROW_DOWN_LEFT: 1,
             //ADD PARAMETERS HERE IN ORDER TO CREATE A GESTURE
           },
         },
         {
-          time: [], //ADD TIME FRAME IN WHICH YOUR GESTURE RESETS
+          time: [1.5], //ADD TIME FRAME IN WHICH YOUR GESTURE RESETS
           persist: true,
           params: {
             reset: true,
@@ -143,6 +145,9 @@ const dmMachine = setup({
     fhLed: fromPromise<any, LEDColor>(async ({ input }) => {
       const { red, green, blue } = input;
       return fhLed(red, green, blue);
+    }),
+    fhNewGesture: fromPromise<any, null>(async () => {
+      return newGesture();
     }),
   },
 }).createMachine({
