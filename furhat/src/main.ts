@@ -173,7 +173,10 @@ const dmMachine = setup({
       },
     },
     Greet: {
-      entry: () => fhLed(255, 0, 0),
+      entry: () => {
+        fhLed(255, 0, 0);
+        newGesture();
+      },
       invoke: {
         src: "fhSay",
         input: "Hello there",
