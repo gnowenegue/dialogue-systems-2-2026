@@ -80,6 +80,23 @@ async function fhListen() {
     .then((value) => JSON.parse(new TextDecoder().decode(value)).message);
 }
 
+async function fhAttend(user: "CLOSEST" | "OTHER" | "RANDOM") {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+
+  const response = await fetch(
+    `http://${FURHATURI}/furhat/attend?user=${user}`,
+    {
+      method: "POST",
+      headers: myHeaders,
+      body: "",
+    },
+  );
+  const result = await response.json();
+
+  return result;
+}
+
 const dmMachine = setup({
   actors: {
     fhVoice: fromPromise<any, null>(async () => {
@@ -89,17 +106,34 @@ const dmMachine = setup({
       return fhSay("Hi");
     }),
     fhL: fromPromise<any, null>(async () => {
-     return fhListen();
-   }),
+      return fhListen();
+    }),
+    fhAttend: fromPromise<any, null>(async () => {
+      return fhAttend("CLOSEST");
+    }),
   },
 }).createMachine({
   id: "root",
-  initial: "Start",
+  initial: "Attend",
   states: {
+    Attend: {
+      invoke: {
+        src: "fhAttend",
+        input: null,
+        onDone: {
+          target: "Start",
+          actions: ({ event }) => console.log("\t", event.output),
+        },
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
     Start: { after: { 1000: "Next" } },
     Next: {
       invoke: {
-        src: "fhHello",      
+        src: "fhHello",
         input: null,
         onDone: {
           target: "Listen",
@@ -111,8 +145,7 @@ const dmMachine = setup({
         },
       },
     },
-    Listen: {
-    },
+    Listen: {},
     Fail: {},
   },
 });
@@ -123,4 +156,3 @@ console.log(actor.getSnapshot().value);
 actor.subscribe((snapshot) => {
   console.log(snapshot.value);
 });
-
