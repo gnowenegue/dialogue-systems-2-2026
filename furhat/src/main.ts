@@ -6,7 +6,7 @@ async function fhVoice(name: string) {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
   const encName = encodeURIComponent(name);
-  return fetch(`http://${FURHATURI}/furhat/voice?name=${encName}`, {
+  return await fetch(`http://${FURHATURI}/furhat/voice?name=${encName}`, {
     method: "POST",
     headers: myHeaders,
     body: "",
@@ -17,11 +17,17 @@ async function fhSay(text: string) {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
   const encText = encodeURIComponent(text);
-  return fetch(`http://${FURHATURI}/furhat/say?text=${encText}&blocking=true`, {
-    method: "POST",
-    headers: myHeaders,
-    body: "",
-  });
+  const response = await fetch(
+    `http://${FURHATURI}/furhat/say?text=${encText}&blocking=true`,
+    {
+      method: "POST",
+      headers: myHeaders,
+      body: "",
+    },
+  );
+  const result = await response.json();
+
+  return result;
 }
 
 async function newGesture() {
@@ -70,14 +76,14 @@ async function fhGesture(text: string) {
 async function fhListen() {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
-  return fetch(`http://${FURHATURI}/furhat/listen`, {
+
+  const response = await fetch(`http://${FURHATURI}/furhat/listen`, {
     method: "GET",
     headers: myHeaders,
-  })
-    .then((response) => response.body)
-    .then((body) => body.getReader().read())
-    .then((reader) => reader.value)
-    .then((value) => JSON.parse(new TextDecoder().decode(value)).message);
+  });
+  const result = await response.json();
+
+  return result.message;
 }
 
 async function fhAttend(user: "CLOSEST" | "OTHER" | "RANDOM") {
@@ -102,10 +108,10 @@ const dmMachine = setup({
     fhVoice: fromPromise<any, null>(async () => {
       return fhVoice("en-US-EchoMultilingualNeural");
     }),
-    fhHello: fromPromise<any, null>(async () => {
-      return fhSay("Hi");
+    fhSay: fromPromise<any, string>(async ({ input }) => {
+      return fhSay(input);
     }),
-    fhL: fromPromise<any, null>(async () => {
+    fhListen: fromPromise<any, null>(async () => {
       return fhListen();
     }),
     fhAttend: fromPromise<any, null>(async () => {
@@ -114,6 +120,9 @@ const dmMachine = setup({
   },
 }).createMachine({
   id: "root",
+  context: {
+    lastUtterance: null,
+  },
   initial: "Attend",
   states: {
     Attend: {
@@ -121,7 +130,7 @@ const dmMachine = setup({
         src: "fhAttend",
         input: null,
         onDone: {
-          target: "Start",
+          target: "Greet",
           actions: ({ event }) => console.log("\t", event.output),
         },
         onError: {
@@ -130,14 +139,13 @@ const dmMachine = setup({
         },
       },
     },
-    Start: { after: { 1000: "Next" } },
-    Next: {
+    Greet: {
       invoke: {
-        src: "fhHello",
-        input: null,
+        src: "fhSay",
+        input: "Hello there",
         onDone: {
           target: "Listen",
-          actions: ({ event }) => console.log(event.output),
+          actions: ({ event }) => console.log("\t", event.output),
         },
         onError: {
           target: "Fail",
@@ -145,14 +153,75 @@ const dmMachine = setup({
         },
       },
     },
-    Listen: {},
+    NoInput: {
+      invoke: {
+        src: "fhSay",
+        input: "I can't hear you.",
+        onDone: {
+          target: "Listen",
+          actions: ({ event }) => console.log("\t", event.output),
+        },
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
+    Repeat: {
+      invoke: {
+        src: "fhSay",
+        input: ({ context }) => `You said ${context.lastUtterance}`,
+        onDone: [
+          {
+            target: "Listen",
+            actions: ({ event }) => console.log("\t", event.output),
+          },
+        ],
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
+    Listen: {
+      invoke: {
+        src: "fhListen",
+        input: null,
+        onDone: [
+          {
+            target: "NoInput",
+            guard: ({ event }) => {
+              return (
+                !event.output ||
+                event.output.trim() === "" ||
+                event.output === "SILENCE"
+              );
+            },
+            actions: () => console.log("\tNo input"),
+          },
+          {
+            target: "Repeat",
+            actions: [
+              assign({
+                lastUtterance: ({ event }) => event.output,
+              }),
+              ({ event }) => console.log("\t", event.output),
+            ],
+          },
+        ],
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
     Fail: {},
   },
 });
 
 const actor = createActor(dmMachine).start();
-console.log(actor.getSnapshot().value);
+console.log(`[State]: ${actor.getSnapshot().value}`);
 
 actor.subscribe((snapshot) => {
-  console.log(snapshot.value);
+  console.log(`[State] ${snapshot.value}`);
 });
